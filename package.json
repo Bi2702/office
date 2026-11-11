@@ -1,0 +1,19 @@
+{
+  "name": "van-ban-dang-word-addin",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Word add-in hỗ trợ chuẩn hóa thể thức văn bản Đảng theo Quy định 399-QĐ/TW và Hướng dẫn 05-HD/VPTW.",
+  "scripts": {
+    "server": "node server.js",
+    "sideload": "wait-on https://localhost:3000/taskpane.html && office-addin-debugging start manifest.xml desktop",
+    "start": "concurrently --kill-others-on-fail \"npm:server\" \"npm:sideload\"",
+    "stop": "office-addin-debugging stop manifest.xml"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "express": "^5.1.0",
+    "office-addin-debugging": "^6.0.3",
+    "office-addin-dev-certs": "^1.13.5",
+    "wait-on": "^8.0.3"
+  }
+}
