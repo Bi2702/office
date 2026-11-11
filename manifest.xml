@@ -5,7 +5,7 @@
            xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
            xsi:type="TaskPaneApp">
   <Id>3a75d2ee-497b-4df2-b843-caf670bc3eb0</Id>
-  <Version>0.1.0.0</Version>
+  <Version>1.0.0.0</Version>
   <ProviderName>Bi2702</ProviderName>
   <DefaultLocale>vi-VN</DefaultLocale>
   <DisplayName DefaultValue="Thể thức văn bản Đảng"/>
@@ -90,3 +90,4 @@
     </Resources>
   </VersionOverrides>
 </OfficeApp>
+
