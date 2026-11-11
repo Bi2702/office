@@ -49,6 +49,16 @@
   function formatRecognizedParagraphs(paragraphs) {
     let titleCount = 0;
     let headingCount = 0;
+    const typeIndex = paragraphs.findIndex((p) => isTypeTitle(normalizeSpace(p.text)));
+    let summaryIndex = -1;
+    if (typeIndex >= 0) {
+      for (let i = typeIndex + 1; i < paragraphs.length; i += 1) {
+        const candidate = normalizeSpace(paragraphs[i].text);
+        if (!candidate) continue;
+        if (candidate.length < 180 && !/^(Phần|Chương|Mục|Điều)\b/i.test(candidate)) summaryIndex = i;
+        break;
+      }
+    }
     paragraphs.forEach((paragraph, index) => {
       const text = normalizeSpace(paragraph.text);
       if (!text || paragraph.tableNestingLevel > 0) return;
@@ -71,6 +81,14 @@
         return;
       }
 
+      if (index === summaryIndex) {
+        paragraph.font.set({ name: BODY_FONT, size: 14, color: "#000000", bold: true });
+        paragraph.alignment = Word.Alignment.centered;
+        paragraph.firstLineIndent = 0;
+        paragraph.spaceAfter = 6;
+        return;
+      }
+
       if (/^(PHẦN|CHƯƠNG|MỤC)\s+/i.test(text)) {
         formatCentered(paragraph, 14, true);
         headingCount += 1;
@@ -90,6 +108,23 @@
         paragraph.font.set({ name: BODY_FONT, size: BODY_SIZE, color: "#000000", italic: true });
         paragraph.alignment = Word.Alignment.centered;
         paragraph.firstLineIndent = 0;
+        paragraph.spaceAfter = 0;
+      }
+
+      if (/^Số\s*[:.]?/i.test(text)) {
+        paragraph.alignment = Word.Alignment.left;
+        paragraph.firstLineIndent = 0;
+      }
+
+      if (/^(Nơi nhận|Kính gửi|Kính trình)\s*:/i.test(text)) {
+        paragraph.font.set({ name: BODY_FONT, size: BODY_SIZE, color: "#000000" });
+        paragraph.firstLineIndent = 0;
+        paragraph.alignment = Word.Alignment.left;
+      }
+
+      if (/^(T\/M\s|KT\.\s|PHÓ\s|BÍ\sTHƯ|CHỦ\sTỊCH|GIÁM\sĐỐC|CHÁNH\sVĂN\sPHÒNG)/i.test(text) || /^(Nơi nhận:|Lưu:)/i.test(text)) {
+        paragraph.firstLineIndent = 0;
+        paragraph.alignment = Word.Alignment.left;
       }
     });
     return { titleCount, headingCount };
@@ -124,17 +159,35 @@
         pageUpdated = true;
       }
 
+      const items = bodyParagraphs.items;
+      const titleIndex = items.findIndex((p) => isTypeTitle(normalizeSpace(p.text)));
+      let bodyStart = titleIndex >= 0 ? titleIndex + 1 : 0;
+      if (titleIndex >= 0) {
+        for (let i = titleIndex + 1; i < items.length; i += 1) {
+          const candidate = normalizeSpace(items[i].text);
+          if (!candidate) continue;
+          if (candidate.length < 180 && !/^(Phần|Chương|Mục|Điều)\b/i.test(candidate)) bodyStart = i + 1;
+          break;
+        }
+      }
+      let bodyEnd = items.length;
+      for (let i = bodyStart; i < items.length; i += 1) {
+        const line = normalizeSpace(items[i].text);
+        if (/^(Nơi nhận\s*:|T\/M\s|KT\.\s|Lưu\s*:)/i.test(line)) { bodyEnd = i; break; }
+      }
       let formatted = 0;
-      bodyParagraphs.items.forEach((paragraph) => {
+      items.forEach((paragraph, index) => {
         if (paragraph.tableNestingLevel > 0 || !normalizeSpace(paragraph.text)) return;
-        formatBodyParagraph(paragraph);
-        formatted += 1;
+        if (index >= bodyStart && index < bodyEnd) {
+          formatBodyParagraph(paragraph);
+          formatted += 1;
+        }
       });
       const recognized = formatRecognizedParagraphs(bodyParagraphs.items);
       await context.sync();
 
       const pageMessage = pageUpdated ? "Đã đặt A4 và lề trang." : "Bản Word này chưa hỗ trợ tự đặt khổ giấy/lề; phần nội dung đã được định dạng.";
-      setStatus(`${pageMessage} Đã định dạng ${formatted} đoạn; nhận diện ${recognized.titleCount} dòng thể thức và ${recognized.headingCount} đề mục.`, "success");
+      setStatus(`${pageMessage} Đã chuẩn hóa ${formatted} đoạn nội dung (giữ nguyên phần đầu, nơi nhận, chữ ký và bảng); nhận diện ${recognized.titleCount} dòng thể thức và ${recognized.headingCount} đề mục.`, "success");
     });
   }
 
@@ -173,12 +226,15 @@
       paragraphs.load("items/text");
       await context.sync();
       const text = paragraphs.items.map((p) => p.text || "").join("\n");
+      const lines = paragraphs.items.map((p) => normalizeSpace(p.text || ""));
       const checks = [
         ["Tiêu đề ĐẢNG CỘNG SẢN VIỆT NAM", /ĐẢNG\s+CỘNG\s+SẢN\s+VIỆT\s+NAM/i.test(text)],
-        ["Số và ký hiệu văn bản", /^\s*Số\s*[:.]?\s*\S+/im.test(text)],
+        ["Số và ký hiệu văn bản", /^Số\s*[:.]?\s*\S+/im.test(text)],
         ["Địa danh, ngày tháng năm", /ngày\s+\d{1,2}\s+tháng\s+\d{1,2}\s+năm\s+\d{4}/i.test(text)],
-        ["Tên loại văn bản (trong danh mục nhận diện)", text.split(/\r?\n/).some((line) => isTypeTitle(normalizeSpace(line)))],
-        ["Nơi nhận hoặc Kính gửi/Kính trình", /(^|\n)\s*(Nơi nhận|Kính gửi|Kính trình)\s*:/i.test(text)]
+        ["Tên loại văn bản nhận diện được", lines.some(isTypeTitle)],
+        ["Nơi nhận hoặc Kính gửi/Kính trình", /(^|\n)\s*(Nơi nhận|Kính gửi|Kính trình)\s*:/i.test(text)],
+        ["Dòng chức vụ/quyền hạn ký", /(^|\n)\s*(T\/M\s|KT\.\s|PHÓ BÍ THƯ|BÍ THƯ|CHỦ TỊCH|GIÁM ĐỐC)/i.test(text)],
+        ["Dấu cách thừa trong văn bản", !/(\S {2,}\S|\s+[,.!?;:])/.test(text)]
       ];
       const container = byId("review-results");
       container.replaceChildren(...checks.map(([label, found]) => {
@@ -193,7 +249,37 @@
         row.append(mark, caption);
         return row;
       }));
-      setStatus("Rà soát xong. Mục thiếu là gợi ý để kiểm tra, không phải kết luận về tính hợp lệ của văn bản.", "success");
+      const issues = [];
+      lines.forEach((line, index) => {
+        if (!line) return;
+        if (/\S {2,}\S|\s+[,.!?;:]/.test(line)) issues.push({ index, label: `Dòng ${index + 1}: có khoảng trắng thừa hoặc dấu câu đặt cách.` });
+        if (/\bngày\s+\d{1,2}[/-]\d{1,2}[/-]\d{4}\b/i.test(line)) issues.push({ index, label: `Dòng ${index + 1}: ngày tháng đang viết dạng số; kiểm tra cách trình bày theo hướng dẫn.` });
+      });
+      if (issues.length) {
+        const heading = document.createElement("p");
+        heading.className = "hint";
+        heading.textContent = `Phát hiện ${issues.length} vị trí cần xem:`;
+        container.append(heading);
+        issues.forEach(({ index, label }) => {
+          const jump = document.createElement("button");
+          jump.className = "review-row review-jump";
+          jump.type = "button";
+          jump.textContent = label;
+          jump.addEventListener("click", () => selectParagraph(index).catch(showError));
+          container.append(jump);
+        });
+      }
+      setStatus(`Rà soát xong: ${issues.length} vị trí cần xem. Mục bắt buộc còn thiếu được đánh dấu bên trên.`, "success");
+    });
+  }
+
+  async function selectParagraph(index) {
+    await Word.run(async (context) => {
+      const paragraphs = context.document.body.paragraphs;
+      paragraphs.load("items");
+      await context.sync();
+      if (index >= 0 && index < paragraphs.items.length) paragraphs.items[index].getRange().select();
+      await context.sync();
     });
   }
 
@@ -215,3 +301,4 @@
     setStatus(`Không thể hoàn tất thao tác: ${error && error.message ? error.message : "lỗi không xác định"}`, "error");
   }
 })();
+
